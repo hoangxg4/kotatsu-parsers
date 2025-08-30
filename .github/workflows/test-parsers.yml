@@ -2,7 +2,7 @@ name: Parsers test for PRs
 
 on:
     workflow_dispatch:
-    pull_request:
+    push:
         paths:
             - 'src/main/kotlin/org/koitharu/kotatsu/parsers/**'
 
