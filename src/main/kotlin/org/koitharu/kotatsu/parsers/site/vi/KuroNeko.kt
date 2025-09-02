@@ -17,7 +17,6 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 	override val configKeyDomain = ConfigKey.Domain("vi-hentai.moe")
 
 	companion object {
-		// Rate limit for getPages: 15 requests per minute -> 60,000ms / 15 = 4000ms per request
 		private const val PAGES_REQUEST_DELAY_MS = 5000L
 		private val pagesRequestMutex = Mutex()
 		private var lastPagesRequestTime = 0L
@@ -86,7 +85,7 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 					)
 				}
 
-				return@buildString
+				return@buildString // end of buildString
 			}
 
 			append("https://")
@@ -208,32 +207,21 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		// Apply rate limiting specifically for fetching pages
-		pagesRequestMutex.withLock {
-			val currentTime = System.currentTimeMillis()
-			val timeSinceLastRequest = currentTime - lastPagesRequestTime
-			if (timeSinceLastRequest < PAGES_REQUEST_DELAY_MS) {
-				delay(PAGES_REQUEST_DELAY_MS - timeSinceLastRequest)
-			}
-			lastPagesRequestTime = System.currentTimeMillis()
-		}
+    val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 
-		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+    return doc.select("div.text-center img").mapNotNull { img ->
+        val url = img.attr("src").takeIf { it.isNotBlank() } 
+            ?: img.attr("data-src").takeIf { it.isNotBlank() }
+            ?: return@mapNotNull null
 
-		return doc.select("div.text-center img").mapNotNull { img ->
-			// Lấy 'src' hoặc 'data-src' nếu 'src' rỗng, trả về null nếu cả hai đều rỗng
-			val url = img.attr("src").takeIf { it.isNotBlank() }
-				?: img.attr("data-src").takeIf { it.isNotBlank() }
-				?: return@mapNotNull null
-
-			MangaPage(
-				id = generateUid(url),
-				url = url,
-				preview = null,
-				source = source,
-			)
-		}
-	}
+        MangaPage(
+            id = generateUid(url),
+            url = url,
+            preview = null,
+            source = source,
+        )
+      }
+    }
 
 	private suspend fun availableTags(): Set<MangaTag> {
 		val doc = webClient.httpGet("https://$domain/tim-kiem").parseHtml()
@@ -265,4 +253,8 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 		)
 		calendar.timeInMillis
 	}.getOrDefault(0L)
+
+	companion object {
+		const val PATH = "AxsAEQdJWk4YDUkHDgcVEwxaBQoHShIXHwYbD1seHAwHOwAKCAYFFw==\n"
+	}
 }
