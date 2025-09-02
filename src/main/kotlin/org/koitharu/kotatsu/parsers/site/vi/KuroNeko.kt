@@ -12,17 +12,16 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
 @MangaSourceParser("KURONEKO", "Kuro Neko / vi-Hentai", "vi", type = ContentType.HENTAI)
-internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.KURONEKO, 60) {
+internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.KURONEKO, 30) {
 
 	override val configKeyDomain = ConfigKey.Domain("vi-hentai.moe")
 
 	companion object {
-		private const val REQUEST_DELAY_MS = 1500L
-		private const val SEARCH_RESULT_LIMIT = 24
+		// Rate limit for getPages: 15 requests per minute -> 60,000ms / 15 = 4000ms per request
+		private const val PAGES_REQUEST_DELAY_MS = 5000L
+		private val pagesRequestMutex = Mutex()
+		private var lastPagesRequestTime = 0L
 	}
-
-	private val requestMutex = Mutex()
-	private var lastRequestTime = 0L
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
@@ -52,15 +51,6 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 	)
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		requestMutex.withLock {
-			val currentTime = System.currentTimeMillis()
-			val timeSinceLastRequest = currentTime - lastRequestTime
-			if (timeSinceLastRequest < REQUEST_DELAY_MS) {
-				delay(REQUEST_DELAY_MS - timeSinceLastRequest)
-			}
-			lastRequestTime = System.currentTimeMillis()
-		}
-
 		val url = buildString {
 			if (!filter.author.isNullOrEmpty()) {
 				clear()
@@ -120,6 +110,8 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 				append(filter.query.urlEncoded())
 			}
 
+
+
 			if (page > 1) {
 				append("&page=")
 				append(page)
@@ -150,7 +142,6 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 		val doc = webClient.httpGet(url).parseHtml()
 
 		return doc.select("div.grid div.relative")
-			.take(SEARCH_RESULT_LIMIT)
 			.map { div ->
 				val href = div.selectFirst("a[href^=/truyen/]")?.attrOrNull("href")
 					?: div.parseFailed("Không thể tìm thấy nguồn ảnh của Manga này!")
@@ -175,15 +166,6 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-		requestMutex.withLock {
-			val currentTime = System.currentTimeMillis()
-			val timeSinceLastRequest = currentTime - lastRequestTime
-			if (timeSinceLastRequest < REQUEST_DELAY_MS) {
-				delay(REQUEST_DELAY_MS - timeSinceLastRequest)
-			}
-			lastRequestTime = System.currentTimeMillis()
-		}
-
 		val root = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 		val author = root.selectFirst("div.mt-2:contains(Tác giả) span a")?.textOrNull()
 
@@ -226,11 +208,24 @@ internal class KuroNeko(context: MangaLoaderContext) : PagedMangaParser(context,
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = webClient.httpGet(fullUrl).parseHtml()
+		// Apply rate limiting specifically for fetching pages
+		pagesRequestMutex.withLock {
+			val currentTime = System.currentTimeMillis()
+			val timeSinceLastRequest = currentTime - lastPagesRequestTime
+			if (timeSinceLastRequest < PAGES_REQUEST_DELAY_MS) {
+				delay(PAGES_REQUEST_DELAY_MS - timeSinceLastRequest)
+			}
+			lastPagesRequestTime = System.currentTimeMillis()
+		}
 
-		return doc.select("div.text-center img.max-w-full").mapNotNull { img ->
-			val url = img.attrOrNull("src") ?: return@mapNotNull null
+		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+
+		return doc.select("div.text-center img").mapNotNull { img ->
+			// Lấy 'src' hoặc 'data-src' nếu 'src' rỗng, trả về null nếu cả hai đều rỗng
+			val url = img.attr("src").takeIf { it.isNotBlank() }
+				?: img.attr("data-src").takeIf { it.isNotBlank() }
+				?: return@mapNotNull null
+
 			MangaPage(
 				id = generateUid(url),
 				url = url,
