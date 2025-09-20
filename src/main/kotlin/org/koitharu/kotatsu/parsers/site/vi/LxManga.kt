@@ -1,12 +1,12 @@
-package org.dokiteam.doki.parsers.site.vi
+package org.koitharu.kotatsu.parsers.site.vi
 
 import okhttp3.Headers
-import org.dokiteam.doki.parsers.MangaLoaderContext
-import org.dokiteam.doki.parsers.MangaSourceParser
-import org.dokiteam.doki.parsers.config.ConfigKey
-import org.dokiteam.doki.parsers.core.PagedMangaParser
-import org.dokiteam.doki.parsers.model.*
-import org.dokiteam.doki.parsers.util.*
+import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.config.ConfigKey
+import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
