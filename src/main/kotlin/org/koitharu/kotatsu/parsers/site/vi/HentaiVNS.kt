@@ -32,7 +32,7 @@ import java.util.*
 @Serializable data class ChapterDetails(@SerialName("pages") val imageUrls: List<String>)
 
 
-@MangaSourceParser("HENTAIVN", "HentaiVN", "vi", type = ContentType.HENTAI)
+@MangaSourceParser("HENTAIVNS", "HentaiVNS", "vi", type = ContentType.HENTAI)
 internal class HentaiVNParser(context: MangaLoaderContext) :
     AbstractMangaParser(context, MangaParserSource.HENTAIVN), MangaParserAuthProvider {
 
