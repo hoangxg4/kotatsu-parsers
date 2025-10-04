@@ -5,7 +5,7 @@ plugins {
     `maven-publish`
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.kotlin.plugin.serialization)
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 group = "org.koitharu"
