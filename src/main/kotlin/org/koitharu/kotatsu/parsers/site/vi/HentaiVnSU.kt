@@ -24,6 +24,11 @@ import java.util.*
 internal class HentaiVnSU(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.HENTAIVNSU, 24), MangaParserAuthProvider {
 
+    // SỬA 1: Đặt hằng số vào companion object
+    companion object {
+        private const val PLACEHOLDER_IMAGE_URL = "https://hentaivn.su/placeholder-error.webp"
+    }
+
     override val configKeyDomain = ConfigKey.Domain("hentaivn.su")
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -91,7 +96,7 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
                 }
             }
             addQueryParameter("page", page.toString())
-            addQueryParameter("limit", page.toString())
+            // NOTE: Tham số 'limit' không tồn tại hoặc không cần thiết, đã xóa
             build()
         }
 
@@ -105,12 +110,17 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
         return mangaArray.mapJSONNotNull { jo ->
             val id = jo.getLongOrDefault("id", -1L)
             if (id == -1L) return@mapJSONNotNull null
+
+            // SỬA 2: Áp dụng logic placeholder cho coverUrl
+            val coverUrl = jo.getStringOrNull("coverUrl")
+            val finalCoverUrl = coverUrl?.takeIf { it.isNotBlank() } ?: PLACEHOLDER_IMAGE_URL
+
             Manga(
                 id = generateUid(id),
                 title = jo.getString("title"),
                 url = "/manga/$id",
                 publicUrl = "/manga/$id".toAbsoluteUrl(domain),
-                coverUrl = jo.getString("coverUrl").toAbsoluteUrl(domain),
+                coverUrl = finalCoverUrl.toAbsoluteUrl(domain),
                 authors = setOfNotNull(jo.getStringOrNull("authors")),
                 tags = jo.optJSONArray("genres")?.mapJSONToSet { genreJo ->
                     MangaTag(genreJo.getString("name"), genreJo.getString("id"), source)
@@ -134,7 +144,12 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
         val detailsJson = detailsDeferred.await()
         val chapters = chaptersDeferred.await()
 
+        // SỬA 3: Áp dụng logic placeholder cho coverUrl trong trang chi tiết
+        val coverUrl = detailsJson.getStringOrNull("coverUrl")
+        val finalCoverUrl = coverUrl?.takeIf { it.isNotBlank() } ?: PLACEHOLDER_IMAGE_URL
+
         manga.copy(
+            coverUrl = finalCoverUrl.toAbsoluteUrl(domain),
             altTitles = detailsJson.optJSONArray("alternativeTitles")?.asTypedList<String>()?.toSet() ?: emptySet(),
             authors = detailsJson.optJSONArray("authors")?.mapJSONToSet { it.getString("name") } ?: emptySet(),
             description = detailsJson.getStringOrNull("description"),
@@ -147,18 +162,22 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
 
     private suspend fun fetchChapters(mangaId: String): List<MangaChapter> {
         val url = "/api/manga/$mangaId/chapters".toAbsoluteUrl(domain)
-        return webClient.httpGet(url).parseJsonArray().mapJSON { jo ->
-            MangaChapter(
-                id = generateUid(jo.getLong("id")),
-                title = jo.getString("title"),
-                number = jo.getFloatOrDefault("readOrder", 0f),
-                url = "/chapter/${jo.getLong("id")}",
-                uploadDate = parseDate(jo.optString("createdAt", null)) ?: 0L,
-                source = source,
-                scanlator = null,
-                volume = 0,
-                branch = null
-            )
+        return try {
+            webClient.httpGet(url).parseJsonArray().mapJSON { jo ->
+                MangaChapter(
+                    id = generateUid(jo.getLong("id")),
+                    title = jo.getString("title"),
+                    number = jo.getFloatOrDefault("readOrder", 0f),
+                    url = "/chapter/${jo.getLong("id")}",
+                    uploadDate = parseDate(jo.optString("createdAt", null)) ?: 0L,
+                    source = source,
+                    scanlator = null,
+                    volume = 0,
+                    branch = null
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
@@ -167,9 +186,24 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
         val apiUrl = "/api/chapter/$chapterId".toAbsoluteUrl(domain)
         val chapterData = webClient.httpGet(apiUrl).parseJson()
 
-        return chapterData.getJSONArray("pages").asTypedList<String>().map { imageUrl ->
-            MangaPage(id = generateUid(imageUrl), url = imageUrl.toAbsoluteUrl(domain), source = source, preview = null)
+        // SỬA 4: Xử lý mảng pages một cách an toàn để tránh lỗi với giá trị null
+        val pagesArray = chapterData.optJSONArray("pages") ?: return emptyList()
+        val mangaPages = mutableListOf<MangaPage>()
+
+        for (i in 0 until pagesArray.length()) {
+            // Dùng optString để lấy null nếu phần tử không phải là string hoặc là null
+            val imageUrl = pagesArray.optString(i, null)
+            val finalUrl = imageUrl?.takeIf { it.isNotBlank() } ?: PLACEHOLDER_IMAGE_URL
+            mangaPages.add(
+                MangaPage(
+                    id = generateUid(finalUrl),
+                    url = finalUrl.toAbsoluteUrl(domain),
+                    source = source,
+                    preview = null
+                )
+            )
         }
+        return mangaPages
     }
 
     private suspend fun getOrCreateTagMap(): Map<String, MangaTag> {
@@ -198,7 +232,9 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
                 val simplerSdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
                     .apply { timeZone = TimeZone.getTimeZone("UTC") }
                 simplerSdf.parse(dateStr)?.time
-            } catch (_: ParseException) { null }
+            } catch (_: ParseException) {
+                null
+            }
         }
     }
 }
